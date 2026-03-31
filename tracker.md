@@ -1,0 +1,1 @@
+/home/kzamd22/Obsidian Vault/02 Projects/tracker.md

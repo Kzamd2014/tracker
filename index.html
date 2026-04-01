@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Strait of Hormuz — Vessel Tracker</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: monospace; background: #0a0a0a; color: #e0e0e0; height: 100vh; display: flex; flex-direction: column; }
+    #status {
+      padding: 6px 12px;
+      font-size: 13px;
+      background: #111;
+      border-bottom: 1px solid #222;
+      letter-spacing: 0.03em;
+    }
+    #status.connecting { color: #aaa; }
+    #status.connected { color: #fb8c00; }
+    #status.live { color: #4caf50; }
+    #status.disconnected { color: #f44336; }
+    #map { flex: 1; }
+  </style>
+</head>
+<body>
+  <div id="status" class="connecting">Connecting…</div>
+  <div id="map"></div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    const MAP_CENTER = [26, 56.5];
+    const MAP_ZOOM = 8;
+    const MARKER_TTL_MS = 15 * 60 * 1000; // 15 minutes
+
+    // Map init
+    const map = L.map('map').setView(MAP_CENTER, MAP_ZOOM);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+      attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors © <a href="https://carto.com/attributions">CARTO</a>',
+      subdomains: 'abcd',
+      maxZoom: 19
+    }).addTo(map);
+
+    // Vessel store: mmsi → { marker, lastSeen, staticData }
+    const vessels = {};
+
+    // Status UI
+    const statusEl = document.getElementById('status');
+    function setStatus(state, count) {
+      statusEl.className = state;
+      if (state === 'connecting') statusEl.textContent = 'Connecting…';
+      else if (state === 'connected') statusEl.textContent = 'Connected — waiting for vessels…';
+      else if (state === 'live') statusEl.textContent = `Live — ${count} vessel${count !== 1 ? 's' : ''}`;
+      else if (state === 'disconnected') statusEl.textContent = 'Disconnected';
+    }
+
+    function vesselCount() {
+      return Object.keys(vessels).length;
+    }
+
+    // Marker color by AIS ship type
+    function markerColor(shipType) {
+      if (shipType >= 80 && shipType <= 89) return '#e53935'; // tanker — red
+      if (shipType >= 70 && shipType <= 79) return '#1e88e5'; // cargo — blue
+      return '#9e9e9e'; // other — gray
+    }
+
+    function makeMarker(lat, lon, shipType) {
+      return L.circleMarker([lat, lon], {
+        radius: 5,
+        color: markerColor(shipType),
+        fillColor: markerColor(shipType),
+        fillOpacity: 0.85,
+        weight: 1
+      });
+    }
+
+    // Coordinate validation
+    function validCoords(lat, lon) {
+      if (lat === 0 && lon === 0) return false;
+      if (Math.abs(lat) > 90) return false;
+      if (Math.abs(lon) > 180) return false;
+      return true;
+    }
+
+    // Handle incoming messages
+    function handleMessage(data) {
+      const msgType = data.MessageType;
+
+      if (msgType === 'PositionReport') {
+        const r = data.Message.PositionReport;
+        const mmsi = r.UserID;
+        const lat = r.Latitude;
+        const lon = r.Longitude;
+
+        if (!validCoords(lat, lon)) return;
+
+        const existing = vessels[mmsi];
+        const shipType = existing?.staticData?.ShipType ?? 0;
+
+        if (existing) {
+          if (existing.marker) {
+            existing.marker.setLatLng([lat, lon]);
+            existing.marker.setStyle({
+              color: markerColor(shipType),
+              fillColor: markerColor(shipType)
+            });
+          } else {
+            existing.marker = makeMarker(lat, lon, shipType).addTo(map);
+          }
+          existing.lastSeen = Date.now();
+        } else {
+          const marker = makeMarker(lat, lon, shipType).addTo(map);
+          vessels[mmsi] = { marker, lastSeen: Date.now(), staticData: null };
+        }
+
+        setStatus('live', vesselCount());
+      }
+
+      if (msgType === 'ShipStaticData') {
+        const s = data.Message.ShipStaticData;
+        const mmsi = s.UserID;
+        const staticData = {
+          ShipName: s.ShipName,
+          Destination: s.Destination,
+          ShipType: s.Type ?? s.ShipType ?? 0
+        };
+
+        if (vessels[mmsi]) {
+          vessels[mmsi].staticData = staticData;
+          // Re-color marker now that we know the type
+          if (vessels[mmsi].marker) vessels[mmsi].marker.setStyle({
+            color: markerColor(staticData.ShipType),
+            fillColor: markerColor(staticData.ShipType)
+          });
+        } else {
+          // Static data arrived before position — store for later
+          vessels[mmsi] = { marker: null, lastSeen: Date.now(), staticData };
+        }
+      }
+    }
+
+    let connected = false;
+
+    // Marker TTL cleanup — runs every 60s
+    setInterval(() => {
+      const cutoff = Date.now() - MARKER_TTL_MS;
+      for (const mmsi of Object.keys(vessels)) {
+        if (vessels[mmsi].lastSeen < cutoff) {
+          if (vessels[mmsi].marker) vessels[mmsi].marker.remove();
+          delete vessels[mmsi];
+        }
+      }
+      if (connected) setStatus('live', vesselCount());
+    }, 60_000);
+
+    // Direct WebSocket to AISstream
+    async function connect() {
+      setStatus('connecting');
+
+      let apiKey;
+      try {
+        const res = await fetch('/api/key');
+        if (!res.ok) throw new Error('key fetch failed');
+        apiKey = (await res.json()).key;
+      } catch (e) {
+        setStatus('disconnected');
+        setTimeout(connect, 5000);
+        return;
+      }
+
+      const ws = new WebSocket('wss://stream.aisstream.io/v0/stream');
+
+      ws.onopen = () => {
+        ws.send(JSON.stringify({
+          APIKey: apiKey,
+          BoundingBoxes: [[[12, 32], [37, 63]]],
+          FilterMessageTypes: ['PositionReport', 'ShipStaticData']
+        }));
+        connected = true;
+        setStatus('connected');
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          handleMessage(JSON.parse(event.data));
+        } catch (e) {
+          console.error('Parse error:', e);
+        }
+      };
+
+      ws.onerror = () => {
+        connected = false;
+        setStatus('disconnected');
+      };
+
+      ws.onclose = () => {
+        connected = false;
+        setStatus('disconnected');
+        setTimeout(connect, 3000);
+      };
+    }
+
+    connect();
+  </script>
+</body>
+</html>

@@ -2,7 +2,7 @@
 
 Strait of Hormuz Oil Tanker Tracking System
 
-Last updated: 2026-03-31
+Last updated: 2026-04-01 (revised)
 
 ---
 
@@ -37,7 +37,7 @@ tracker is a real-time vessel monitoring tool that visualizes oil tanker traffic
 
 ```
 WebSocket endpoint:  wss://stream.aisstream.io/v0/stream
-Bounding box:        SW [24, 54] → NE [28, 60]  (lat/lon)
+Bounding box:        SW [12, 32] → NE [37, 63]  (lat/lon)
 Map center:          26°N, 56.5°E, zoom 8
 ```
 
@@ -52,10 +52,14 @@ Map center:          26°N, 56.5°E, zoom 8
 - Bounding box filter: SW [24, 54] → NE [28, 60]
 - Parse `PositionReport` messages and plot/update Leaflet circle markers
 - Color markers by vessel type: tanker = red, cargo = blue, other = gray
+- Reject invalid coordinates: skip any position where `Latitude == 0 && Longitude == 0`, `Latitude > 90`, or `Longitude > 180`
+- Markers expire after 15 minutes without a position update (removed from map)
+- Connection status indicator: one-line text showing "Connecting…", "Live — N vessels", or "Disconnected"
+- Reconnect on close: automatic retry with 3-second delay on `onclose` / `onerror`
 - At least one vessel visible and updating within 2 minutes of load
 
 ### V1
-- Vessel click → sidebar panel: name, MMSI, speed, heading, destination, vessel type, flag
+- Vessel click → sidebar panel: name, MMSI, speed, heading, destination, vessel type, flag (derived from MMSI prefix using MID country code lookup)
 - Filter toggle buttons: All / Tanker / Cargo / Other
 - API key moved from source to `.env` → Vercel environment variables
 - Node.js project scaffold: `package.json`, `.gitignore`, `.env.example`
@@ -95,7 +99,7 @@ Map center:          26°N, 56.5°E, zoom 8
 {
   "APIKey": "<key>",
   "BoundingBoxes": [[[24, 54], [28, 60]]],
-  "FilterMessageTypes": ["PositionReport"]
+  "FilterMessageTypes": ["PositionReport", "ShipStaticData"]
 }
 ```
 
@@ -116,6 +120,23 @@ Map center:          26°N, 56.5°E, zoom 8
 | `ShipName` | Display name |
 | `Destination` | Sidebar telemetry |
 | `ShipType` | Marker color logic |
+
+---
+
+## WebSocket Connection Behavior
+
+| Event | Behavior |
+|---|---|
+| Connecting | Status indicator shows "Connecting…" |
+| `onopen` | Send subscribe payload; status shows "Live — 0 vessels" |
+| `onmessage` | Parse and dispatch by `MessageType`; increment vessel counter on new MMSI |
+| `onerror` | Log to console; status shows "Disconnected" |
+| `onclose` | Status shows "Disconnected"; retry after 3s delay |
+| Reconnect | Re-run `connectWebSocket()`; counter resets |
+
+**Coordinate validation:** Reject any `PositionReport` where `Latitude == 0 && Longitude == 0`, `Math.abs(Latitude) > 90`, or `Math.abs(Longitude) > 180`.
+
+**Marker TTL:** Each marker tracks its last-updated timestamp. A cleanup interval (every 60s) removes markers not updated in the last 15 minutes.
 
 ---
 

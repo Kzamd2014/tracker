@@ -2,7 +2,7 @@
 
 Strait of Hormuz Oil Tanker Tracking System
 
-Last updated: 2026-03-31
+Last updated: 2026-04-01 (revised)
 
 ---
 
@@ -36,8 +36,8 @@ Map center:          26°N, 56.5°E, zoom 8
 - [x] `CLAUDE.md` created
 - [x] `docs/` initialized
 - [ ] AISstream account and API key obtained
-- [ ] GitHub repo created (`tracker`)
-- [ ] `.gitignore` configured
+- [x] GitHub repo created (`tracker`) — https://github.com/Kzamd2014/tracker
+- [ ] `.gitignore` configured — **must be done before pasting API key into index.html**
 - [ ] `index.html` with Leaflet map
 - [ ] WebSocket connection to AISstream
 - [ ] Bounding box filter active
@@ -78,7 +78,7 @@ Map center:          26°N, 56.5°E, zoom 8
 | Blocker | Status |
 |---|---|
 | AISstream API key | Pending — account not yet created |
-| GitHub repo | Pending — create before first commit |
+| file:// + wss:// browser test | Pending — must verify Chrome allows wss:// from file:// before coding MVP |
 
 ---
 
@@ -98,3 +98,4 @@ Map center:          26°N, 56.5°E, zoom 8
 | Date | Notes |
 |---|---|
 | 2026-03-31 | Project plan completed. Stack selected. CLAUDE.md and docs/ created. Awaiting API key and repo setup to begin MVP build. |
+| 2026-03-31 | Spec review completed. Critical fixes applied: FilterMessageTypes corrected to include ShipStaticData; coordinate validation, marker TTL, reconnect logic, and connection status indicator added to spec; V1/V2 Supabase discrepancy resolved; vessel store data structure defined in architecture. GitHub repo created. |

@@ -18,7 +18,7 @@ Real-time AIS vessel tracking map for the Strait of Hormuz. Live vessel position
 
 ```
 WebSocket endpoint:  wss://stream.aisstream.io/v0/stream
-Bounding box:        SW [24, 54] → NE [28, 60]  (lat/lon)
+Bounding box:        SW [12, 32] → NE [37, 63]  (lat/lon)
 Map center:          26°N, 56.5°E, zoom 8
 ```
 
@@ -62,7 +62,7 @@ Subscribe with a bounding box filter:
 {
   "APIKey": "<key>",
   "BoundingBoxes": [[[24, 54], [28, 60]]],
-  "FilterMessageTypes": ["PositionReport"]
+  "FilterMessageTypes": ["PositionReport", "ShipStaticData"]
 }
 ```
 

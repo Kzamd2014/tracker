@@ -1,0 +1,825 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tracker — Hormuz AIS Prototype</title>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;500;600;700&family=JetBrains+Mono:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<style>
+:root {
+  --bg:#070d1a; --surface:rgba(8,17,35,0.94); --surface-raised:rgba(10,22,46,0.98);
+  --border:rgba(24,52,90,0.9); --border-bright:rgba(0,178,216,0.35);
+  --text:#b8d4e8; --text-muted:#3d6a8a; --text-dim:#1f3d58;
+  --accent:#00b2d8; --accent-warm:#ff9500; --tanker:#ff4040; --cargo:#3b9eff; --other:#78909c;
+  --font-ui:'Barlow Condensed',sans-serif; --font-data:'JetBrains Mono',monospace;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:var(--font-data);background:var(--bg);color:var(--text);height:100vh;overflow:hidden;}
+#root{display:flex;flex-direction:column;height:100vh;}
+
+/* toasts */
+#toasts{position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:2000;display:flex;flex-direction:column;gap:6px;pointer-events:none;}
+.toast{display:flex;align-items:center;gap:10px;padding:7px 14px 7px 12px;border-radius:2px;font-size:11px;font-family:var(--font-ui);font-weight:600;letter-spacing:.12em;text-transform:uppercase;pointer-events:auto;background:var(--surface);border:1px solid var(--border);border-left:3px solid transparent;white-space:nowrap;backdrop-filter:blur(12px);}
+.toast-info{border-left-color:var(--accent-warm);color:var(--accent-warm);}
+.toast-success{border-left-color:#00e5a0;color:#00e5a0;}
+.toast-error{border-left-color:var(--tanker);color:var(--tanker);}
+.toast-close{background:none;border:none;color:inherit;cursor:pointer;font-size:11px;opacity:.5;padding:0;margin-left:2px;line-height:1;}
+.toast-close:hover{opacity:1;}
+
+/* filter buttons */
+.fbtn{background:var(--surface);border:1px solid var(--border);border-radius:2px;color:var(--text-muted);font-family:var(--font-ui);font-weight:700;font-size:11px;letter-spacing:.12em;text-transform:uppercase;padding:5px 12px;cursor:pointer;backdrop-filter:blur(8px);transition:color .12s,border-color .12s,background .12s;}
+.fbtn:hover{color:var(--text);border-color:rgba(30,60,100,1);}
+.fbtn.active{border-color:var(--accent);color:var(--accent);background:rgba(0,178,216,.08);}
+
+/* vessel card */
+#vessel-card{position:absolute;bottom:80px;left:16px;width:272px;z-index:1000;background:var(--surface);border:1px solid var(--border);border-top:2px solid var(--accent);border-radius:2px;font-size:11px;overflow:hidden;pointer-events:auto;backdrop-filter:blur(16px);box-shadow:0 8px 40px rgba(0,0,0,.6),0 0 0 1px rgba(0,178,216,.06);}
+#vc-header{display:flex;align-items:center;gap:8px;padding:10px 12px;cursor:pointer;border-bottom:1px solid var(--border);user-select:none;background:rgba(0,178,216,.04);transition:background .12s;}
+#vc-header:hover{background:rgba(0,178,216,.08);}
+#vc-name{flex:1;font-family:var(--font-ui);font-weight:700;font-size:15px;letter-spacing:.08em;text-transform:uppercase;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+#vc-chevron{font-size:8px;color:var(--text-dim);}
+#vc-close{color:var(--text-dim);font-size:13px;flex-shrink:0;line-height:1;padding:0 2px;cursor:pointer;background:none;border:none;transition:color .12s;}
+#vc-close:hover{color:var(--text);}
+#vc-body{padding:8px 12px;max-height:260px;overflow:hidden;transition:max-height .22s ease,padding .22s ease,opacity .18s ease;opacity:1;}
+#vc-body.collapsed{max-height:0;padding-top:0;padding-bottom:0;opacity:0;}
+.panel-row{display:flex;justify-content:space-between;align-items:baseline;gap:8px;padding:4px 0;border-bottom:1px solid rgba(24,52,90,.5);}
+.panel-row:last-child{border-bottom:none;}
+.panel-label{color:var(--text-muted);font-size:10px;font-family:var(--font-ui);font-weight:600;letter-spacing:.12em;text-transform:uppercase;flex-shrink:0;}
+.panel-value{color:var(--text);text-align:right;font-size:11px;}
+
+/* vessel table */
+#vessel-table-panel{position:absolute;top:0;right:0;width:280px;bottom:0;z-index:1000;background:var(--surface);border-left:1px solid var(--border);font-size:11px;display:flex;flex-direction:column;transform:translateX(100%);transition:transform .25s cubic-bezier(.4,0,.2,1);pointer-events:auto;backdrop-filter:blur(16px);}
+#vessel-table-panel.open{transform:translateX(0);}
+#vt-header{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid var(--border);font-family:var(--font-ui);font-weight:700;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted);flex-shrink:0;background:rgba(0,178,216,.03);}
+#vt-close{cursor:pointer;color:var(--text-dim);font-size:14px;background:none;border:none;line-height:1;transition:color .12s;}
+#vt-close:hover{color:var(--text);}
+#vt-list{overflow-y:auto;flex:1;scrollbar-width:thin;scrollbar-color:var(--border) transparent;}
+.vt-row{padding:9px 16px;border-bottom:1px solid rgba(24,52,90,.5);cursor:pointer;transition:background .1s;}
+.vt-row:hover{background:rgba(0,178,216,.05);}
+.vt-row-main{display:flex;align-items:center;gap:8px;margin-bottom:3px;overflow:hidden;}
+.vt-name{color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px;}
+.vt-unknown{color:var(--text-dim);}
+.vt-meta{display:flex;gap:8px;color:var(--text-muted);font-size:10px;font-family:var(--font-ui);letter-spacing:.06em;}
+.vt-empty{padding:28px 16px;color:var(--text-dim);text-align:center;font-size:11px;font-family:var(--font-ui);font-weight:600;letter-spacing:.12em;text-transform:uppercase;}
+
+/* search */
+#search-overlay{position:fixed;inset:0;z-index:3000;background:rgba(4,10,24,.72);display:flex;justify-content:center;padding-top:80px;backdrop-filter:blur(3px);}
+#search-box{width:440px;max-height:460px;background:var(--surface-raised);border:1px solid var(--border-bright);border-top:2px solid var(--accent);border-radius:2px;overflow:hidden;display:flex;flex-direction:column;align-self:flex-start;box-shadow:0 24px 80px rgba(0,0,0,.75),0 0 60px rgba(0,178,216,.06);}
+#search-input{width:100%;background:transparent;border:none;border-bottom:1px solid var(--border);color:var(--text);font-family:var(--font-data);font-size:13px;padding:14px 16px;outline:none;}
+#search-input::placeholder{color:var(--text-dim);font-style:italic;}
+#search-results{overflow-y:auto;flex:1;scrollbar-width:thin;scrollbar-color:var(--border) transparent;}
+.search-result{padding:9px 16px;cursor:pointer;border-bottom:1px solid rgba(24,52,90,.5);display:flex;justify-content:space-between;align-items:center;gap:8px;transition:background .1s;}
+.search-result.highlighted,.search-result:hover{background:rgba(0,178,216,.08);}
+.sr-left{display:flex;align-items:center;gap:8px;overflow:hidden;min-width:0;}
+.sr-name{color:var(--text);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.sr-unknown{color:var(--text-dim);}
+.sr-meta{color:var(--text-muted);font-size:10px;white-space:nowrap;flex-shrink:0;font-family:var(--font-ui);letter-spacing:.06em;}
+#search-empty{padding:20px 16px;color:var(--text-dim);font-size:11px;text-align:center;font-family:var(--font-ui);font-weight:600;letter-spacing:.1em;text-transform:uppercase;}
+
+/* playback */
+#playback-bar{display:flex;align-items:center;gap:10px;padding:8px 16px;background:var(--surface);border-top:1px solid var(--border);font-size:11px;font-family:var(--font-data);flex-shrink:0;backdrop-filter:blur(8px);}
+#pb-live,#pb-play{background:transparent;border:1px solid var(--border);border-radius:2px;color:var(--text-muted);font-family:var(--font-ui);font-weight:700;font-size:11px;letter-spacing:.1em;text-transform:uppercase;padding:4px 12px;cursor:pointer;white-space:nowrap;transition:color .12s,border-color .12s,background .12s;}
+#pb-live{border-color:var(--accent);color:var(--accent);}
+#pb-live:hover{background:rgba(0,178,216,.08);}
+#pb-play:hover{color:var(--text);border-color:rgba(30,60,100,1);}
+#pb-slider{flex:1;accent-color:var(--accent);cursor:pointer;}
+#pb-time{color:var(--text-muted);min-width:148px;text-align:right;white-space:nowrap;font-size:11px;}
+
+/* dark panel */
+#dark-panel{position:absolute;bottom:80px;left:16px;width:272px;max-height:420px;z-index:1000;background:var(--surface);border:1px solid var(--border);border-top:2px solid var(--tanker);border-radius:2px;font-size:11px;display:flex;flex-direction:column;pointer-events:auto;backdrop-filter:blur(16px);box-shadow:0 8px 40px rgba(0,0,0,.6);}
+#dark-header{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px solid var(--border);background:rgba(255,64,64,.04);flex-shrink:0;}
+#dark-title{display:flex;align-items:center;gap:8px;font-family:var(--font-ui);font-weight:700;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--tanker);}
+.dark-signal-dot{width:7px;height:7px;border-radius:50%;background:var(--tanker);animation:dpulse 2s ease-in-out infinite;}
+@keyframes dpulse{0%,100%{opacity:.85}50%{opacity:.25}}
+#dark-count{background:rgba(255,64,64,.15);color:var(--tanker);border-radius:2px;padding:1px 6px;font-size:10px;font-family:var(--font-data);}
+#dark-refresh{background:none;border:1px solid var(--border);border-radius:2px;color:var(--text-muted);font-size:14px;cursor:pointer;padding:1px 6px;line-height:1.2;transition:color .12s,border-color .12s;}
+#dark-refresh:hover{color:var(--text);border-color:var(--accent);}
+#dark-close{background:none;border:none;color:var(--text-dim);font-size:13px;cursor:pointer;padding:0 2px;line-height:1;transition:color .12s;}
+#dark-close:hover{color:var(--text);}
+#dark-sub{padding:6px 12px;font-size:10px;font-family:var(--font-ui);letter-spacing:.08em;color:var(--text-muted);border-bottom:1px solid var(--border);flex-shrink:0;}
+#dark-list{overflow-y:auto;flex:1;scrollbar-width:thin;scrollbar-color:var(--border) transparent;}
+.dark-empty{padding:24px 16px;color:var(--text-dim);text-align:center;font-size:11px;font-family:var(--font-ui);font-weight:600;letter-spacing:.1em;text-transform:uppercase;}
+.dark-row{padding:9px 12px;border-bottom:1px solid rgba(24,52,90,.5);cursor:pointer;transition:background .1s;}
+.dark-row:hover{background:rgba(255,64,64,.04);}
+.dark-row-main{display:flex;align-items:center;gap:7px;margin-bottom:4px;overflow:hidden;}
+.dark-type-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;opacity:.7;}
+.dark-name{flex:1;color:var(--text);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.dark-unknown{color:var(--text-dim);}
+.dark-age{color:var(--tanker);font-size:10px;font-family:var(--font-data);flex-shrink:0;opacity:.85;}
+.dark-meta{display:flex;gap:8px;color:var(--text-muted);font-size:10px;font-family:var(--font-ui);letter-spacing:.05em;}
+
+/* legend */
+#legend{position:absolute;bottom:80px;right:16px;z-index:1000;background:var(--surface);border:1px solid var(--border);border-top:2px solid var(--border-bright);border-radius:2px;padding:10px 14px;font-size:11px;font-family:var(--font-ui);font-weight:600;letter-spacing:.1em;text-transform:uppercase;line-height:2.1;color:var(--text-muted);pointer-events:none;backdrop-filter:blur(12px);}
+#legend span{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:8px;vertical-align:middle;}
+
+/* tweaks */
+#tweaks-panel{position:fixed;bottom:24px;right:24px;z-index:4000;background:var(--surface-raised);border:1px solid var(--border-bright);border-radius:2px;padding:16px;width:220px;font-family:var(--font-ui);font-size:11px;backdrop-filter:blur(20px);box-shadow:0 8px 40px rgba(0,0,0,.8);}
+#tweaks-panel h3{font-size:10px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:var(--accent);margin-bottom:12px;border-bottom:1px solid var(--border);padding-bottom:8px;}
+.tweak-row{margin-bottom:12px;}
+.tweak-label{display:block;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-muted);margin-bottom:6px;font-weight:600;}
+.tweak-opts{display:flex;gap:4px;flex-wrap:wrap;}
+.tweak-opt{flex:1;padding:4px 0;border:1px solid var(--border);border-radius:2px;background:transparent;color:var(--text-muted);font-family:var(--font-ui);font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;cursor:pointer;text-align:center;transition:all .12s;white-space:nowrap;}
+.tweak-opt:hover{color:var(--text);}
+.tweak-opt.sel{border-color:var(--accent);color:var(--accent);background:rgba(0,178,216,.1);}
+.tweak-swatch{width:22px;height:22px;border-radius:2px;border:2px solid rgba(0,0,0,0);cursor:pointer;transition:border-color .12s;}
+.tweak-swatch.sel{border-color:var(--text);}
+.tweak-toggle{display:flex;align-items:center;gap:8px;cursor:pointer;color:var(--text-muted);font-size:10px;letter-spacing:.1em;text-transform:uppercase;font-weight:600;}
+.tweak-toggle input{accent-color:var(--accent);width:14px;height:14px;cursor:pointer;}
+
+/* sidebar variant */
+#app-sidebar{position:absolute;top:0;left:0;bottom:0;width:200px;z-index:999;background:rgba(7,13,26,0.95);border-right:1px solid var(--border);backdrop-filter:blur(20px);display:flex;flex-direction:column;}
+.sidebar-logo{padding:16px;border-bottom:1px solid var(--border);}
+.sidebar-logo-text{font-family:var(--font-ui);font-weight:700;font-size:22px;letter-spacing:.2em;text-transform:uppercase;color:var(--text);}
+.sidebar-logo-sub{font-size:10px;font-family:var(--font-ui);letter-spacing:.14em;text-transform:uppercase;color:var(--text-dim);margin-top:2px;}
+.sidebar-section{padding:12px 16px;border-bottom:1px solid var(--border);}
+.sidebar-section-title{font-size:9px;font-family:var(--font-ui);font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:var(--text-dim);margin-bottom:10px;}
+.sidebar-stat{display:flex;justify-content:space-between;align-items:baseline;padding:3px 0;}
+.sidebar-stat-label{font-size:10px;font-family:var(--font-ui);letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted);}
+.sidebar-stat-val{font-size:13px;font-family:var(--font-data);}
+.sidebar-fbtn{display:block;width:100%;text-align:left;background:transparent;border:1px solid var(--border);border-radius:2px;color:var(--text-muted);font-family:var(--font-ui);font-weight:700;font-size:11px;letter-spacing:.1em;text-transform:uppercase;padding:6px 10px;cursor:pointer;margin-bottom:4px;transition:all .12s;}
+.sidebar-fbtn:hover{color:var(--text);}
+.sidebar-fbtn.active{border-color:var(--accent);color:var(--accent);background:rgba(0,178,216,.08);}
+.sidebar-bottom{margin-top:auto;padding:12px 16px;border-top:1px solid var(--border);}
+.sidebar-status{display:flex;align-items:center;gap:6px;font-size:10px;font-family:var(--font-ui);font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:#00e5a0;}
+.sidebar-status-dot{width:6px;height:6px;border-radius:50%;background:#00e5a0;animation:livepulse 2s ease-in-out infinite;}
+@keyframes livepulse{0%,100%{opacity:1}50%{opacity:.3}}
+
+/* scanline overlay */
+#scanlines{position:fixed;inset:0;pointer-events:none;z-index:9998;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,.08) 2px,rgba(0,0,0,.08) 4px);}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef, useCallback, useMemo } = React;
+
+/* ── Tweaks defaults ─────────────────────────────────────────────────────── */
+const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+  "layout": "floating",
+  "accent": "#00b2d8",
+  "scanlines": false
+}/*EDITMODE-END*/;
+
+/* ── Sample data ─────────────────────────────────────────────────────────── */
+const VESSELS = [
+  { mmsi:'447123456', name:'ARCTIC SPIRIT',  shipType:80, sog:13.2, heading:52,  lat:26.85, lon:55.10, dest:'FUJAIRAH',     flag:'🇸🇦 Saudi Arabia' },
+  { mmsi:'352456789', name:'GULF PIONEER',   shipType:70, sog:8.5,  heading:292, lat:28.50, lon:49.20, dest:'KUWAIT',       flag:'🇵🇦 Panama' },
+  { mmsi:'422789012', name:'HORMUZ STAR',    shipType:80, sog:0.0,  heading:180, lat:26.42, lon:56.82, dest:'—',            flag:'🇮🇷 Iran' },
+  { mmsi:'538345678', name:'OCEAN CARRIER',  shipType:70, sog:11.8, heading:118, lat:24.52, lon:58.48, dest:'KARACHI',      flag:'🇲🇭 Marshall Is.' },
+  { mmsi:'455901234', name:'AL ZUBARA',      shipType:80, sog:15.3, heading:272, lat:25.92, lon:51.58, dest:'HAMAD PORT',   flag:'🇶🇦 Qatar' },
+  { mmsi:'566712345', name:'STRAITS GLORY',  shipType:70, sog:9.1,  heading:245, lat:27.20, lon:53.40, dest:'ABU DHABI',   flag:'🇸🇬 Singapore' },
+  { mmsi:'900000001', name:null,             shipType:0,  sog:4.2,  heading:88,  lat:23.92, lon:57.28, dest:'—',            flag:'🌐 Unknown' },
+];
+
+const DARK_SHIPS = [
+  { mmsi:'470111222', name:'SHADOW EAGLE', shipType:80, lat:26.18, lon:54.82, dest:'UNKNOWN',      recordedAt:new Date(Date.now()-23*60000).toISOString() },
+  { mmsi:'900999888', name:null,           shipType:0,  lat:27.08, lon:52.28, dest:null,           recordedAt:new Date(Date.now()-72*60000).toISOString() },
+  { mmsi:'422555444', name:'PERSIAN STAR', shipType:80, lat:25.52, lon:57.78, dest:'BANDAR ABBAS', recordedAt:new Date(Date.now()-47*60000).toISOString() },
+];
+
+/* ── Helpers ─────────────────────────────────────────────────────────────── */
+const markerColor = t => t>=80&&t<=89?'#ff4040':t>=70&&t<=79?'#3b9eff':'#78909c';
+const typeName    = t => t>=80&&t<=89?'Tanker':t>=70&&t<=79?'Cargo':'Other';
+const matchFilter = (v,f) => f==='all'?true:f==='tanker'?v.shipType>=80&&v.shipType<=89:f==='cargo'?v.shipType>=70&&v.shipType<=79:!(v.shipType>=70&&v.shipType<=89);
+const fmtAge = iso => {
+  const s = Math.floor((Date.now()-new Date(iso))/1000);
+  if(s<60) return `${s}s ago`;
+  if(s<3600) return `${Math.floor(s/60)}m ago`;
+  return `${Math.floor(s/3600)}h ${Math.floor((s%3600)/60)}m ago`;
+};
+const stepToISO = step => new Date(Date.now()-(287-step)*5*60*1000).toISOString();
+const formatStep = step => {
+  const d = new Date(stepToISO(step));
+  return d.toISOString().replace('T',' ').slice(0,16)+' UTC';
+};
+
+/* ── Map geometry ────────────────────────────────────────────────────────── */
+const MW=1200, MH=750;
+const tx = lon => (lon-28)/37*MW;
+const ty = lat => (38-lat)/28*MH;
+const P = arr => arr.map(([lo,la])=>`${tx(lo).toFixed(1)},${ty(la).toFixed(1)}`).join(' ');
+
+// North land: Iran, Iraq, Turkey/Syria strip
+const NORTH_PTS = P([
+  [28,38],[65,38],[65,25.5],[63,25.2],[61,24.8],[59.5,25.2],[58.5,25.8],
+  [57.5,26.7],[56.5,27.2],[56,26.9],[55.2,27.4],[53.5,28.0],[52.5,28.8],
+  [51.5,29.2],[50.5,29.5],[49.5,30.0],[48.5,30.5],[47.5,30.8],
+  [47.2,31.5],[45.5,33],[44,36],[42,37],[35,37],[28,37]
+]);
+
+// South land: Arabian Peninsula + bottom edge
+const SOUTH_PTS = P([
+  [65,10],[65,22.0],[60.5,22],[59.5,22.5],[58.5,23.2],[57.5,23.8],
+  [56.8,25.2],[56.3,26.2],[55.8,24.3],[55.0,24.1],[54.2,24.3],
+  [53.5,24.8],[52.5,25.5],[51.8,25.8],[51.5,25.6],[51.3,25.1],
+  [51.0,26.0],[50.8,26.2],[50.2,26.7],[49.5,27.2],[48.8,27.8],
+  [47.5,28.5],[47.2,29.5],[47.0,29.8],
+  [44,33],[40,32],[37,30],[35.5,29.2],[36.0,27],[37.5,25],[38.5,23.5],
+  [39.5,21.5],[41.5,17.5],[42.5,14.5],[44.5,12.5],[45,12],
+  [51.5,11.8],[28,10]
+]);
+
+// Africa east coast strip
+const AFRICA_PTS = P([
+  [28,10],[37.5,10],[38,11],[36,11.5],[34,12],[32,15],[30,20],[28,22]
+]);
+
+const WATER_LABELS = [
+  { text:'RED SEA',           lon:36.5, lat:22 },
+  { text:'GULF OF ADEN',      lon:46.0, lat:12.8 },
+  { text:'ARABIAN SEA',       lon:60.5, lat:16.5 },
+  { text:'GULF OF OMAN',      lon:59.0, lat:23.5 },
+  { text:'PERSIAN GULF',      lon:51.5, lat:27.5 },
+  { text:'STRAIT OF HORMUZ',  lon:56.5, lat:25.8 },
+];
+
+/* ── Vessel type dot ─────────────────────────────────────────────────────── */
+function TypeDot({ shipType, size=8 }) {
+  return <span style={{ display:'inline-block', width:size, height:size, borderRadius:'50%', background:markerColor(shipType), flexShrink:0 }} />;
+}
+
+/* ── Map SVG ─────────────────────────────────────────────────────────────── */
+function MapSVG({ vessels, filter, selectedMmsi, onSelect, darkShips, darkOpen }) {
+  const visible = vessels.filter(v => matchFilter(v, filter));
+  return (
+    <svg viewBox={`0 0 ${MW} ${MH}`} style={{ position:'absolute', inset:0, width:'100%', height:'100%' }} preserveAspectRatio="xMidYMid slice">
+      {/* Water */}
+      <defs>
+        <radialGradient id="wg" cx="60%" cy="45%" r="55%">
+          <stop offset="0%" stopColor="#091828"/>
+          <stop offset="100%" stopColor="#040a14"/>
+        </radialGradient>
+      </defs>
+      <rect width={MW} height={MH} fill="url(#wg)"/>
+
+      {/* Grid */}
+      {[15,20,25,30,35].map(lat=>(
+        <line key={lat} x1={0} y1={ty(lat)} x2={MW} y2={ty(lat)} stroke="rgba(0,150,200,0.04)" strokeWidth={1}/>
+      ))}
+      {[30,35,40,45,50,55,60,65].map(lon=>(
+        <line key={lon} x1={tx(lon)} y1={0} x2={tx(lon)} y2={MH} stroke="rgba(0,150,200,0.04)" strokeWidth={1}/>
+      ))}
+
+      {/* Land */}
+      <polygon points={NORTH_PTS}  fill="#0c1c2e" stroke="#162c42" strokeWidth={0.8}/>
+      <polygon points={SOUTH_PTS}  fill="#0c1c2e" stroke="#162c42" strokeWidth={0.8}/>
+      <polygon points={AFRICA_PTS} fill="#0c1c2e" stroke="#162c42" strokeWidth={0.8}/>
+
+      {/* Hormuz detail highlight */}
+      <ellipse cx={tx(56.4)} cy={ty(26.5)} rx={18} ry={12} fill="none" stroke="rgba(0,178,216,0.07)" strokeWidth={1}/>
+
+      {/* Water labels */}
+      {WATER_LABELS.map(({text,lon,lat})=>(
+        <text key={text} x={tx(lon)} y={ty(lat)} textAnchor="middle"
+          fill="rgba(0,178,216,0.38)" fontSize={9.5}
+          fontFamily="'Barlow Condensed',sans-serif" fontWeight={600}
+          letterSpacing={3} fontStyle="italic"
+          style={{ pointerEvents:'none', userSelect:'none' }}
+        >{text}</text>
+      ))}
+
+      {/* Dark ship markers */}
+      {darkOpen && darkShips.map(ds => {
+        const x=tx(ds.lon), y=ty(ds.lat);
+        return (
+          <g key={ds.mmsi}>
+            <circle cx={x} cy={y} r={7} fill="none" stroke="#ff4040" strokeWidth={1} strokeDasharray="2,2" opacity={0.6}/>
+            <circle cx={x} cy={y} r={2.5} fill="#ff4040" opacity={0.7}/>
+          </g>
+        );
+      })}
+
+      {/* Vessel markers */}
+      {visible.map(v => {
+        const x=tx(v.lon), y=ty(v.lat);
+        const color=markerColor(v.shipType);
+        const sel=v.mmsi===selectedMmsi;
+        const stopped=v.sog<0.3;
+        const rad=v.heading*Math.PI/180;
+        const hx=x+Math.sin(rad)*16, hy=y-Math.cos(rad)*16;
+        return (
+          <g key={v.mmsi} onClick={()=>onSelect(v.mmsi)} style={{ cursor:'pointer' }}>
+            {sel && <>
+              <circle cx={x} cy={y} r={14} fill="none" stroke={color} strokeWidth={1} opacity={0.2}>
+                <animate attributeName="r" values="8;20" dur="1.5s" repeatCount="indefinite"/>
+                <animate attributeName="opacity" values="0.5;0" dur="1.5s" repeatCount="indefinite"/>
+              </circle>
+            </>}
+            {!stopped && (
+              <line x1={x} y1={y} x2={hx} y2={hy} stroke={color} strokeWidth={1.5} opacity={0.65} strokeLinecap="round"/>
+            )}
+            <circle cx={x} cy={y} r={sel?5.5:4} fill={color} stroke={sel?'#c8e8f8':'#04080f'} strokeWidth={sel?1.5:0.8}/>
+            {sel && v.name && (
+              <text x={x+9} y={y-8} fill="#b8d4e8" fontSize={9}
+                fontFamily="'Barlow Condensed',sans-serif" fontWeight={600} letterSpacing={1}
+                style={{ pointerEvents:'none', userSelect:'none' }}
+              >{v.name}</text>
+            )}
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+/* ── Compass ─────────────────────────────────────────────────────────────── */
+function Compass() {
+  return (
+    <div id="compass">
+      <svg viewBox="0 0 58 58" fill="none">
+        <circle cx="29" cy="29" r="27" stroke="rgba(24,52,90,0.9)" strokeWidth="1"/>
+        <circle cx="29" cy="29" r="1.5" fill="rgba(0,178,216,0.5)"/>
+        {[0,90,180,270].map(a=>{
+          const r=a*Math.PI/180;
+          const lbl=['N','E','S','W'][a/90];
+          const isN=a===0;
+          return (
+            <g key={a}>
+              <line x1={29+Math.sin(r)*10} y1={29-Math.cos(r)*10}
+                    x2={29+Math.sin(r)*23} y2={29-Math.cos(r)*23}
+                    stroke={isN?'rgba(0,178,216,0.8)':'rgba(61,106,138,0.6)'} strokeWidth={isN?1.5:1}/>
+              <text x={29+Math.sin(r)*27} y={29-Math.cos(r)*27+3.5}
+                textAnchor="middle" fill={isN?'rgba(0,178,216,0.9)':'rgba(61,106,138,0.7)'}
+                fontSize={7} fontFamily="'Barlow Condensed',sans-serif" fontWeight={700} letterSpacing={1}
+              >{lbl}</text>
+            </g>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
+/* ── Legend ──────────────────────────────────────────────────────────────── */
+function Legend() {
+  return (
+    <div id="legend">
+      <div><span style={{ background:'#ff4040' }}/> Tanker</div>
+      <div><span style={{ background:'#3b9eff' }}/> Cargo</div>
+      <div><span style={{ background:'#78909c' }}/> Other</div>
+    </div>
+  );
+}
+
+/* ── Filter buttons (floating) ───────────────────────────────────────────── */
+function FilterButtons({ active, onChange, vesselCount, onList, listOpen }) {
+  const filters = ['all','tanker','cargo','other'];
+  return (
+    <div id="filters">
+      {filters.map(f=>(
+        <button key={f} className={`fbtn${active===f?' active':''}`} onClick={()=>onChange(f)}>
+          {f==='all'?`ALL (${vesselCount})`:f.toUpperCase()}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/* ── Vessel card ─────────────────────────────────────────────────────────── */
+function VesselCard({ vessel, onClose }) {
+  const [collapsed, setCollapsed] = useState(false);
+  if (!vessel) return null;
+  const name = vessel.name || 'Unknown';
+  const rows = [
+    ['MMSI',     vessel.mmsi],
+    ['Flag',     vessel.flag],
+    ['Type',     typeName(vessel.shipType)],
+    ['Speed',    vessel.sog!=null?`${vessel.sog.toFixed(1)} kn`:'—'],
+    ['Heading',  vessel.heading!=null&&vessel.heading<360?`${vessel.heading}°`:'—'],
+    ['Dest',     vessel.dest||'—'],
+    ['Position', `${vessel.lat.toFixed(4)}, ${vessel.lon.toFixed(4)}`],
+  ];
+  return (
+    <div id="vessel-card">
+      <div id="vc-header" onClick={()=>setCollapsed(c=>!c)}>
+        <TypeDot shipType={vessel.shipType} size={12}/>
+        <span id="vc-name">{name}</span>
+        <span id="vc-chevron">{collapsed?'▲':'▼'}</span>
+        <button id="vc-close" onClick={e=>{e.stopPropagation();onClose();}}>✕</button>
+      </div>
+      <div id="vc-body" className={collapsed?'collapsed':''}>
+        {rows.map(([lbl,val])=>(
+          <div className="panel-row" key={lbl}>
+            <span className="panel-label">{lbl}</span>
+            <span className="panel-value">{val}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ── Vessel list panel ───────────────────────────────────────────────────── */
+function VesselList({ vessels, onSelect, onClose, filter }) {
+  const sorted = useMemo(()=>[...vessels].sort((a,b)=>{
+    const order = t=>t>=80&&t<=89?0:t>=70&&t<=79?1:2;
+    return order(a.shipType)-order(b.shipType)||(b.sog??0)-(a.sog??0);
+  }),[vessels]);
+  const visible = sorted.filter(v=>matchFilter(v,filter));
+  return (
+    <div id="vessel-table-panel" className="open">
+      <div id="vt-header">
+        <span>Vessels ({visible.length})</span>
+        <button id="vt-close" onClick={onClose}>✕</button>
+      </div>
+      <div id="vt-list">
+        {visible.map(v=>(
+          <div key={v.mmsi} className="vt-row" onClick={()=>onSelect(v)}>
+            <div className="vt-row-main">
+              <TypeDot shipType={v.shipType} size={8}/>
+              <span className="vt-name">{v.name||<span className="vt-unknown">Unknown</span>}</span>
+            </div>
+            <div className="vt-meta">
+              <span>{v.flag}</span>
+              <span style={{ color:markerColor(v.shipType) }}>{typeName(v.shipType)}</span>
+              {v.sog!=null&&<span>{v.sog.toFixed(1)} kn</span>}
+            </div>
+          </div>
+        ))}
+        {visible.length===0&&<div className="vt-empty">No vessels match filter</div>}
+      </div>
+    </div>
+  );
+}
+
+/* ── Vessel search ───────────────────────────────────────────────────────── */
+function VesselSearch({ vessels, onSelect, onClose }) {
+  const [q, setQ] = useState('');
+  const [hi, setHi] = useState(0);
+  const inputRef = useRef();
+
+  useEffect(()=>{ inputRef.current?.focus(); },[]);
+
+  const results = useMemo(()=>{
+    if(!q.trim()) return vessels;
+    const lq=q.toLowerCase();
+    return vessels.filter(v=>(v.name||'').toLowerCase().includes(lq)||v.mmsi.includes(lq)||(v.flag||'').toLowerCase().includes(lq));
+  },[q,vessels]);
+
+  const pick = v => { onSelect(v); onClose(); };
+
+  const onKey = e => {
+    if(e.key==='ArrowDown'){e.preventDefault();setHi(h=>Math.min(h+1,results.length-1));}
+    if(e.key==='ArrowUp'){e.preventDefault();setHi(h=>Math.max(h-1,0));}
+    if(e.key==='Enter'&&results[hi]){ pick(results[hi]); }
+    if(e.key==='Escape'){ onClose(); }
+  };
+
+  return (
+    <div id="search-overlay" onClick={onClose}>
+      <div id="search-box" onClick={e=>e.stopPropagation()}>
+        <input id="search-input" ref={inputRef}
+          value={q} onChange={e=>{setQ(e.target.value);setHi(0);}}
+          onKeyDown={onKey}
+          placeholder="Search vessel name, MMSI, flag… (⌘K)"
+        />
+        <div id="search-results">
+          {results.length===0&&<div id="search-empty">No vessels found</div>}
+          {results.map((v,i)=>(
+            <div key={v.mmsi} className={`search-result${i===hi?' highlighted':''}`} onClick={()=>pick(v)}>
+              <div className="sr-left">
+                <TypeDot shipType={v.shipType} size={8}/>
+                <span className="sr-name">{v.name||<span className="sr-unknown">Unknown</span>}</span>
+              </div>
+              <span className="sr-meta">{typeName(v.shipType)} · {v.sog?.toFixed(1)} kn</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Dark ships panel ────────────────────────────────────────────────────── */
+function DarkPanel({ ships, onClose, onSelect }) {
+  return (
+    <div id="dark-panel">
+      <div id="dark-header">
+        <span id="dark-title">
+          <span className="dark-signal-dot"/>
+          DARK SHIPS
+          {ships.length>0&&<span id="dark-count">{ships.length}</span>}
+        </span>
+        <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+          <button id="dark-refresh" title="Refresh">↻</button>
+          <button id="dark-close" onClick={onClose}>✕</button>
+        </div>
+      </div>
+      <div id="dark-sub">Seen within 90 min · silent 5+ min</div>
+      <div id="dark-list">
+        {ships.map(s=>(
+          <div key={s.mmsi} className="dark-row" onClick={()=>onSelect(s)}>
+            <div className="dark-row-main">
+              <span className="dark-type-dot" style={{ background:markerColor(s.shipType) }}/>
+              <span className="dark-name">{s.name?.trim()||<span className="dark-unknown">UNKNOWN</span>}</span>
+              <span className="dark-age">{fmtAge(s.recordedAt)}</span>
+            </div>
+            <div className="dark-meta">
+              <span>{typeName(s.shipType)}</span>
+              {s.dest&&<span>→ {s.dest}</span>}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ── Playback bar ────────────────────────────────────────────────────────── */
+function PlaybackBar({ onClose }) {
+  const [step, setStep] = useState(287);
+  const [playing, setPlaying] = useState(false);
+  const ivRef = useRef();
+  useEffect(()=>()=>clearInterval(ivRef.current),[]);
+
+  const toggle = () => {
+    if(playing){ clearInterval(ivRef.current); setPlaying(false); }
+    else {
+      setPlaying(true);
+      ivRef.current = setInterval(()=>{
+        setStep(p=>{ if(p>=287){clearInterval(ivRef.current);setPlaying(false);return p;} return p+1; });
+      },1200);
+    }
+  };
+
+  return (
+    <div id="playback-bar">
+      <button id="pb-live" onClick={onClose}>◀ Live</button>
+      <input id="pb-slider" type="range" min={0} max={287} value={step} step={1}
+        onChange={e=>setStep(parseInt(e.target.value))}/>
+      <span id="pb-time">{formatStep(step)}</span>
+      <button id="pb-play" onClick={toggle}>{playing?'⏸ Pause':'▶ Play'}</button>
+    </div>
+  );
+}
+
+/* ── Toasts ──────────────────────────────────────────────────────────────── */
+function ToastBar({ toasts, onDismiss }) {
+  return (
+    <div id="toasts">
+      {toasts.map(t=>(
+        <div key={t.id} className={`toast toast-${t.type}`}>
+          {t.message}
+          <button className="toast-close" onClick={()=>onDismiss(t.id)}>✕</button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ── Sidebar (layout variant) ────────────────────────────────────────────── */
+function Sidebar({ filter, onChange, vessels }) {
+  const tankers = vessels.filter(v=>v.shipType>=80&&v.shipType<=89).length;
+  const cargo   = vessels.filter(v=>v.shipType>=70&&v.shipType<=79).length;
+  const other   = vessels.length-tankers-cargo;
+  const moving  = vessels.filter(v=>v.sog>0.5).length;
+  return (
+    <div id="app-sidebar">
+      <div className="sidebar-logo">
+        <div className="sidebar-logo-text">TRACKER</div>
+        <div className="sidebar-logo-sub">Strait of Hormuz · AIS</div>
+      </div>
+      <div className="sidebar-section">
+        <div className="sidebar-section-title">Live Traffic</div>
+        <div className="sidebar-stat">
+          <span className="sidebar-stat-label">Total</span>
+          <span className="sidebar-stat-val" style={{ color:'#b8d4e8' }}>{vessels.length}</span>
+        </div>
+        <div className="sidebar-stat">
+          <span className="sidebar-stat-label">Tankers</span>
+          <span className="sidebar-stat-val" style={{ color:'#ff4040' }}>{tankers}</span>
+        </div>
+        <div className="sidebar-stat">
+          <span className="sidebar-stat-label">Cargo</span>
+          <span className="sidebar-stat-val" style={{ color:'#3b9eff' }}>{cargo}</span>
+        </div>
+        <div className="sidebar-stat">
+          <span className="sidebar-stat-label">Moving</span>
+          <span className="sidebar-stat-val" style={{ color:'#00e5a0' }}>{moving}</span>
+        </div>
+      </div>
+      <div className="sidebar-section">
+        <div className="sidebar-section-title">Filter</div>
+        {['all','tanker','cargo','other'].map(f=>(
+          <button key={f} className={`sidebar-fbtn${filter===f?' active':''}`} onClick={()=>onChange(f)}>
+            {f==='all'?'All Vessels':f.charAt(0).toUpperCase()+f.slice(1)+'s'}
+          </button>
+        ))}
+      </div>
+      <div className="sidebar-bottom">
+        <div className="sidebar-status">
+          <span className="sidebar-status-dot"/>
+          Live · AIS Active
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Tweaks panel ────────────────────────────────────────────────────────── */
+function TweaksPanel({ tweaks, onChange }) {
+  const accents = [
+    { val:'#00b2d8', label:'Cyan' },
+    { val:'#ff9500', label:'Amber' },
+    { val:'#00e5a0', label:'Green' },
+  ];
+  return (
+    <div id="tweaks-panel">
+      <h3>Tweaks</h3>
+      <div className="tweak-row">
+        <span className="tweak-label">Layout</span>
+        <div className="tweak-opts">
+          {[['floating','Floating'],['sidebar','Sidebar']].map(([v,l])=>(
+            <button key={v} className={`tweak-opt${tweaks.layout===v?' sel':''}`} onClick={()=>onChange('layout',v)}>{l}</button>
+          ))}
+        </div>
+      </div>
+      <div className="tweak-row">
+        <span className="tweak-label">Accent</span>
+        <div className="tweak-opts" style={{ gap:6 }}>
+          {accents.map(a=>(
+            <div key={a.val} title={a.label}
+              className={`tweak-swatch${tweaks.accent===a.val?' sel':''}`}
+              style={{ background:a.val }}
+              onClick={()=>onChange('accent',a.val)}
+            />
+          ))}
+        </div>
+      </div>
+      <div className="tweak-row" style={{ marginBottom:0 }}>
+        <label className="tweak-toggle">
+          <input type="checkbox" checked={tweaks.scanlines} onChange={e=>onChange('scanlines',e.target.checked)}/>
+          Scan Lines
+        </label>
+      </div>
+    </div>
+  );
+}
+
+/* ── App ─────────────────────────────────────────────────────────────────── */
+function App() {
+  const [tweaks, setTweaks] = useState(TWEAK_DEFAULTS);
+  const [showTweaks, setShowTweaks] = useState(false);
+  const [selectedMmsi, setSelectedMmsi] = useState(null);
+  const [filter, setFilter] = useState('all');
+  const [listOpen, setListOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [darkOpen, setDarkOpen] = useState(false);
+  const [playbackOpen, setPlaybackOpen] = useState(false);
+  const [toasts, setToasts] = useState([
+    { id:'live', message:'Live — 7 vessels tracked', type:'success' },
+  ]);
+
+  const selectedVessel = useMemo(()=>VESSELS.find(v=>v.mmsi===selectedMmsi),[selectedMmsi]);
+
+  // Apply accent CSS var
+  useEffect(()=>{
+    document.documentElement.style.setProperty('--accent', tweaks.accent);
+  },[tweaks.accent]);
+
+  // Keyboard shortcuts
+  useEffect(()=>{
+    const h = e => {
+      if((e.metaKey||e.ctrlKey)&&e.key==='k'){e.preventDefault();setSearchOpen(true);}
+      if(e.key==='Escape'){setSearchOpen(false);}
+    };
+    window.addEventListener('keydown',h);
+    return ()=>window.removeEventListener('keydown',h);
+  },[]);
+
+  // Tweaks host communication
+  useEffect(()=>{
+    const h = e => {
+      if(e.data?.type==='__activate_edit_mode')   setShowTweaks(true);
+      if(e.data?.type==='__deactivate_edit_mode') setShowTweaks(false);
+    };
+    window.addEventListener('message',h);
+    window.parent.postMessage({type:'__edit_mode_available'},'*');
+    return ()=>window.removeEventListener('message',h);
+  },[]);
+
+  const updateTweak = (key,val) => {
+    setTweaks(t=>({...t,[key]:val}));
+    window.parent.postMessage({type:'__edit_mode_set_keys',edits:{[key]:val}},'*');
+  };
+
+  const selectVessel = v => {
+    setSelectedMmsi(v.mmsi);
+    setListOpen(false);
+    setSearchOpen(false);
+  };
+
+  const isSidebar = tweaks.layout === 'sidebar';
+  const mapLeft   = isSidebar ? 200 : 0;
+
+  return (
+    <div style={{ display:'flex', flexDirection:'column', height:'100vh', background:'#070d1a' }}>
+      {tweaks.scanlines && <div id="scanlines"/>}
+      <ToastBar toasts={toasts} onDismiss={id=>setToasts(ts=>ts.filter(t=>t.id!==id))}/>
+
+      {/* Map area */}
+      <div style={{ flex:1, position:'relative', overflow:'hidden' }}>
+        {/* Sidebar variant */}
+        {isSidebar && <Sidebar filter={filter} onChange={setFilter} vessels={VESSELS}/>}
+
+        {/* SVG map */}
+        <div style={{ position:'absolute', top:0, bottom:0, left:mapLeft, right:0 }}>
+          <MapSVG
+            vessels={VESSELS}
+            filter={filter}
+            selectedMmsi={selectedMmsi}
+            onSelect={mmsi=>setSelectedMmsi(prev=>prev===mmsi?null:mmsi)}
+            darkShips={DARK_SHIPS}
+            darkOpen={darkOpen}
+          />
+        </div>
+
+        {/* Floating layout controls */}
+        {!isSidebar && (
+          <div style={{ position:'absolute', top:16, left:16, zIndex:1000, display:'flex', gap:4 }}>
+            {['all','tanker','cargo','other'].map(f=>(
+              <button key={f} className={`fbtn${filter===f?' active':''}`} onClick={()=>setFilter(f)}>
+                {f==='all'?`ALL (${VESSELS.length})`:f.toUpperCase()}
+              </button>
+            ))}
+            <button
+              className={`fbtn${listOpen?' active':''}`}
+              style={{ marginLeft:4 }}
+              onClick={()=>setListOpen(o=>!o)}
+            >
+              List ({VESSELS.length})
+            </button>
+          </div>
+        )}
+
+        {/* Sidebar layout list toggle */}
+        {isSidebar && (
+          <button
+            className={`fbtn${listOpen?' active':''}`}
+            style={{ position:'absolute', top:16, left:216, zIndex:1000 }}
+            onClick={()=>setListOpen(o=>!o)}
+          >
+            List ({VESSELS.length})
+          </button>
+        )}
+
+        {/* Bottom-left controls */}
+        <div style={{ position:'absolute', bottom:28, left:isSidebar?216:16, zIndex:1000, display:'flex', gap:8 }}>
+          <button
+            className={`fbtn${playbackOpen?' active':''}`}
+            style={playbackOpen?{borderColor:'var(--accent-warm)',color:'var(--accent-warm)',background:'rgba(255,149,0,.08)'}:{}}
+            onClick={()=>setPlaybackOpen(o=>!o)}
+          >
+            Playback
+          </button>
+          <button
+            className={`fbtn${darkOpen?' active':''}`}
+            style={darkOpen?{borderColor:'var(--tanker)',color:'var(--tanker)',background:'rgba(255,64,64,.08)'}:{}}
+            onClick={()=>setDarkOpen(o=>!o)}
+          >
+            ◉ Dark
+          </button>
+          <button
+            className="fbtn"
+            onClick={()=>setSearchOpen(true)}
+            style={{ opacity:.7 }}
+          >
+            Search <span style={{ opacity:.5, fontSize:9 }}>⌘K</span>
+          </button>
+        </div>
+
+        <Compass/>
+        <Legend/>
+
+        {/* Panels */}
+        {selectedVessel && (
+          <VesselCard vessel={selectedVessel} onClose={()=>setSelectedMmsi(null)}/>
+        )}
+
+        {darkOpen && !selectedVessel && (
+          <DarkPanel ships={DARK_SHIPS} onClose={()=>setDarkOpen(false)} onSelect={()=>{}}/>
+        )}
+
+        {listOpen && (
+          <VesselList vessels={VESSELS} onSelect={selectVessel} onClose={()=>setListOpen(false)} filter={filter}/>
+        )}
+
+        {searchOpen && (
+          <VesselSearch vessels={VESSELS} onSelect={selectVessel} onClose={()=>setSearchOpen(false)}/>
+        )}
+      </div>
+
+      {/* Playback bar */}
+      {playbackOpen && <PlaybackBar onClose={()=>setPlaybackOpen(false)}/>}
+
+      {showTweaks && <TweaksPanel tweaks={tweaks} onChange={updateTweak}/>}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>

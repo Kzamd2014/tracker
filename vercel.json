@@ -1,12 +1,39 @@
 {
   "rewrites": [{ "source": "/((?!api/).*)", "destination": "/index.html" }],
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
   "headers": [
+    {
+      "source": "/prototype.html",
+      "headers": [
+        {
+          "key": "Content-Security-Policy",
+          "value": "default-src 'self'; script-src 'self' https://unpkg.com 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://*.tile.openstreetmap.org https://*.basemaps.cartocdn.com; connect-src 'self' wss://stream.aisstream.io wss://aisstream.io https://ujksogczuklizljahicf.supabase.co wss://ujksogczuklizljahicf.supabase.co;"
+        }
+      ]
+    },
     {
       "source": "/(.*)",
       "headers": [
         {
           "key": "Content-Security-Policy",
-          "value": "default-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com; style-src 'self' 'unsafe-inline' https://unpkg.com; img-src 'self' data: https://*.tile.openstreetmap.org https://*.basemaps.cartocdn.com; connect-src 'self' wss://stream.aisstream.io wss://aisstream.io https://unpkg.com;"
+          "value": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://*.tile.openstreetmap.org https://*.basemaps.cartocdn.com; connect-src 'self' wss://stream.aisstream.io wss://aisstream.io https://ujksogczuklizljahicf.supabase.co wss://ujksogczuklizljahicf.supabase.co;"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        },
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "key": "Permissions-Policy",
+          "value": "geolocation=(), microphone=(), camera=()"
         }
       ]
     }
